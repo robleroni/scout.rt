@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2010, 2023 BSI Business Systems Integration AG
+ * Copyright (c) 2010, 2025 BSI Business Systems Integration AG
  *
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
@@ -25,6 +25,8 @@ import org.eclipse.scout.rt.platform.transaction.TransactionScope;
 import org.eclipse.scout.rt.platform.util.StringUtility;
 import org.eclipse.scout.rt.server.commons.servlet.IHttpServletRoundtrip;
 import org.eclipse.scout.rt.server.commons.servlet.logging.ServletDiagnosticsProviderFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Creates a {@link RunContext} based on a {@link HttpServletRequest} and the current JAAS context.
@@ -33,6 +35,8 @@ import org.eclipse.scout.rt.server.commons.servlet.logging.ServletDiagnosticsPro
  */
 @ApplicationScoped
 public class HttpRunContextProducer {
+
+  private static final Logger LOG = LoggerFactory.getLogger(HttpRunContextProducer.class);
 
   private final ServletDiagnosticsProviderFactory m_servletDiagProviderFactory;
   private final CorrelationId m_correlationIdProvider;
@@ -62,14 +66,32 @@ public class HttpRunContextProducer {
       contextToFill = RunContexts.copyCurrent(true);
     }
 
-    return contextToFill
+    RunContext runContext = contextToFill
         .withSubject(Subject.getSubject(AccessController.getContext()))
-        .withCorrelationId(currentCorrelationId(req))
-        .withThreadLocal(IHttpServletRoundtrip.CURRENT_HTTP_SERVLET_REQUEST, req)
-        .withThreadLocal(IHttpServletRoundtrip.CURRENT_HTTP_SERVLET_RESPONSE, resp)
-        .withDiagnostics(getServletDiagnosticsProviderFactory().getProviders(req, resp))
-        .withLocale(req.getLocale())
         .withTransactionScope(TransactionScope.REQUIRES_NEW);
+
+    if (req != null) {
+      runContext = runContext
+          .withLocale(req.getLocale())
+          .withCorrelationId(currentCorrelationId(req))
+          .withThreadLocal(IHttpServletRoundtrip.CURRENT_HTTP_SERVLET_REQUEST, req);
+    }
+    else {
+      LOG.warn("No request provided");
+    }
+
+    if (resp != null) {
+      runContext = runContext.withThreadLocal(IHttpServletRoundtrip.CURRENT_HTTP_SERVLET_RESPONSE, resp);
+    }
+    else {
+      LOG.warn("No response provided");
+    }
+
+    if (req != null && resp != null) {
+      runContext = runContext.withDiagnostics(getServletDiagnosticsProviderFactory().getProviders(req, resp));
+    }
+
+    return runContext;
   }
 
   protected String currentCorrelationId(HttpServletRequest req) {

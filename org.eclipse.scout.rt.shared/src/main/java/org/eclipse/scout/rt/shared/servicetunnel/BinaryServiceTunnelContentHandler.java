@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2010, 2023 BSI Business Systems Integration AG
+ * Copyright (c) 2010, 2025 BSI Business Systems Integration AG
  *
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
@@ -18,42 +18,61 @@ import java.util.zip.DeflaterOutputStream;
 import java.util.zip.Inflater;
 import java.util.zip.InflaterInputStream;
 
+import org.eclipse.scout.rt.platform.Bean;
 import org.eclipse.scout.rt.platform.Order;
+import org.eclipse.scout.rt.platform.config.CONFIG;
+import org.eclipse.scout.rt.platform.serialization.IObjectSerializer;
+import org.eclipse.scout.rt.platform.serialization.SerializationUtility;
+import org.eclipse.scout.rt.shared.SharedConfigProperties.CompressServiceTunnelRequestProperty;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
  * "No frills" implementation for client-server communication with optional compression.
  */
+@Bean
 @Order(5010)
-public class BinaryServiceTunnelContentHandler extends AbstractServiceTunnelContentHandler {
+public class BinaryServiceTunnelContentHandler {
 
   private static final Logger LOG = LoggerFactory.getLogger(BinaryServiceTunnelContentHandler.class);
-  private static final String CONTENT_TYPE = "application/octet-stream";
 
+  private IObjectSerializer m_objectSerializer;
+  private Boolean m_sendCompressed;
   private Boolean m_receivedCompressed;
 
-  @Override
-  public String getContentType() {
-    return CONTENT_TYPE;
+  public void initialize() {
+    m_sendCompressed = CONFIG.getPropertyValue(CompressServiceTunnelRequestProperty.class);
+    m_objectSerializer = createObjectSerializer();
   }
 
-  @Override
+  /**
+   * @return Creates an {@link IObjectSerializer} instance used for serializing and deserializing data.
+   * @since 3.8.2
+   */
+  protected IObjectSerializer createObjectSerializer() {
+    return SerializationUtility.createObjectSerializer(new ServiceTunnelObjectReplacer());
+  }
+
+  protected Boolean isSendCompressed() {
+    return m_sendCompressed;
+  }
+
+  protected IObjectSerializer getObjectSerializer() {
+    return m_objectSerializer;
+  }
+
   public void writeRequest(OutputStream out, ServiceTunnelRequest msg) throws IOException {
     writeData(out, msg);
   }
 
-  @Override
   public ServiceTunnelRequest readRequest(InputStream in) throws IOException, ClassNotFoundException {
     return readData(in, ServiceTunnelRequest.class);
   }
 
-  @Override
   public void writeResponse(OutputStream out, ServiceTunnelResponse msg) throws IOException {
     writeData(out, msg);
   }
 
-  @Override
   public ServiceTunnelResponse readResponse(InputStream in) throws IOException, ClassNotFoundException {
     return readData(in, ServiceTunnelResponse.class);
   }

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2010, 2023 BSI Business Systems Integration AG
+ * Copyright (c) 2010, 2025 BSI Business Systems Integration AG
  *
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
@@ -16,21 +16,23 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 
+import jakarta.ws.rs.core.Response.Status;
+
+import org.eclipse.scout.rt.platform.BEANS;
 import org.eclipse.scout.rt.platform.serialization.SerializationUtility;
+import org.eclipse.scout.rt.rest.jersey.TestJerseyMockConnector;
+import org.eclipse.scout.rt.rest.jersey.TestingRestClientConfigFactory;
 import org.eclipse.scout.rt.shared.SharedConfigProperties.ServiceTunnelTargetUrlProperty;
-import org.eclipse.scout.rt.shared.http.AbstractHttpTransportManager;
-import org.eclipse.scout.rt.shared.http.IHttpTransportManager;
-import org.eclipse.scout.rt.shared.servicetunnel.IServiceTunnelContentHandler;
+import org.eclipse.scout.rt.shared.servicetunnel.BinaryServiceTunnelContentHandler;
 import org.eclipse.scout.rt.shared.servicetunnel.ServiceTunnelRequest;
 import org.eclipse.scout.rt.shared.servicetunnel.ServiceTunnelResponse;
 import org.eclipse.scout.rt.testing.platform.mock.BeanMock;
 import org.eclipse.scout.rt.testing.platform.runner.PlatformTestRunner;
+import org.junit.AfterClass;
+import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
-import com.google.api.client.http.HttpRequestFactory;
-import com.google.api.client.http.HttpTransport;
-import com.google.api.client.testing.http.MockHttpTransport;
 import com.google.api.client.testing.http.MockLowLevelHttpResponse;
 
 /**
@@ -42,8 +44,15 @@ public class HttpServiceTunnelTest {
   @BeanMock
   private ServiceTunnelTargetUrlProperty mockUrl;
 
-  @BeanMock
-  private IServiceTunnelContentHandler m_contentHandler;
+  @BeforeClass
+  public static void beforeClass() {
+    BEANS.get(TestingRestClientConfigFactory.class).setConnectorProvider((client, runtimeConfig) -> BEANS.get(TestJerseyMockConnector.class));
+  }
+
+  @AfterClass
+  public static void afterClass() {
+    BEANS.get(TestingRestClientConfigFactory.class).resetConnectorProvider();
+  }
 
   @Test
   public void testTunnel() throws IOException {
@@ -59,9 +68,9 @@ public class HttpServiceTunnelTest {
   }
 
   @Test
-  public void testTunnelException() {
+  public void testTunnelException() throws IOException {
     when(mockUrl.getValue()).thenReturn("http://localhost");
-    MockLowLevelHttpResponse expectedResponse = new MockLowLevelHttpResponse().setStatusCode(401);
+    MockLowLevelHttpResponse expectedResponse = new MockLowLevelHttpResponse().setStatusCode(401).setContent(InputStream.nullInputStream());
     HttpServiceTunnel tunnel = createHttpServiceTunnel(expectedResponse);
     tunnel.setContentHandler(getTestContentHandler());
 
@@ -72,36 +81,11 @@ public class HttpServiceTunnelTest {
     assertEquals(401, ((HttpServiceTunnelException) response.getException()).getHttpStatus());
   }
 
-  protected HttpServiceTunnel createHttpServiceTunnel(final MockLowLevelHttpResponse expectedResponse) {
-    HttpServiceTunnel tunnel = new HttpServiceTunnel() {
-
-      @Override
-      protected IHttpTransportManager getHttpTransportManager() {
-
-        return new AbstractHttpTransportManager() {
-
-          private MockHttpTransport m_transport = new MockHttpTransport.Builder()
-              .setLowLevelHttpResponse(expectedResponse)
-              .build();
-
-          @Override
-          public String getName() {
-            return "scout.transport.test-service-tunnel";
-          }
-
-          @Override
-          public HttpTransport getHttpTransport() {
-            return m_transport;
-          }
-
-          @Override
-          public HttpRequestFactory getHttpRequestFactory() {
-            return m_transport.createRequestFactory(createHttpRequestInitializer());
-          }
-        };
-      }
-    };
-    return tunnel;
+  protected HttpServiceTunnel createHttpServiceTunnel(final MockLowLevelHttpResponse expectedResponse) throws IOException {
+    TestJerseyMockConnector testJerseyMockConnector = BEANS.get(TestJerseyMockConnector.class);
+    testJerseyMockConnector.setNextResponseStatus(Status.fromStatusCode(expectedResponse.getStatusCode()));
+    testJerseyMockConnector.setNextResponseEntityStream(expectedResponse.getContent());
+    return new HttpServiceTunnel();
   }
 
   /**
@@ -110,7 +94,6 @@ public class HttpServiceTunnelTest {
   @Test
   public void testNullUrlConfig() {
     HttpServiceTunnel tunnel = new HttpServiceTunnel();
-    assertNull(tunnel.getServerUrl());
     assertFalse(tunnel.isActive());
   }
 
@@ -121,7 +104,6 @@ public class HttpServiceTunnelTest {
   public void testEmptyUrlConfig() {
     when(mockUrl.getValue()).thenReturn(" ");
     HttpServiceTunnel tunnel = new HttpServiceTunnel();
-    assertNull(tunnel.getServerUrl());
     assertFalse(tunnel.isActive());
   }
 
@@ -138,7 +120,6 @@ public class HttpServiceTunnelTest {
   public void testValidUrlConfig() {
     when(mockUrl.getValue()).thenReturn("http://localhost");
     HttpServiceTunnel tunnel = new HttpServiceTunnel();
-    assertNotNull(tunnel.getServerUrl());
     assertTrue(tunnel.isActive());
   }
 
@@ -146,8 +127,8 @@ public class HttpServiceTunnelTest {
     return SerializationUtility.createObjectSerializer().serialize(response);
   }
 
-  private IServiceTunnelContentHandler getTestContentHandler() {
-    return new IServiceTunnelContentHandler() {
+  private BinaryServiceTunnelContentHandler getTestContentHandler() {
+    return new BinaryServiceTunnelContentHandler() {
 
       @Override
       public void writeResponse(OutputStream out, ServiceTunnelResponse msg) {
@@ -169,11 +150,6 @@ public class HttpServiceTunnelTest {
 
       @Override
       public void initialize() {
-      }
-
-      @Override
-      public String getContentType() {
-        return null;
       }
     };
   }

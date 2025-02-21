@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2010, 2023 BSI Business Systems Integration AG
+ * Copyright (c) 2010, 2025 BSI Business Systems Integration AG
  *
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
@@ -60,7 +60,7 @@ import org.mockito.ArgumentMatchers;
 import org.mockito.stubbing.Answer;
 
 /**
- * Test for {@link ServiceTunnelServlet}
+ * Test for {@link ServiceTunnelService}
  */
 @RunWith(ServerTestRunner.class)
 @RunWithServerSession(TestServerSession.class)
@@ -161,12 +161,12 @@ public class ServiceTunnelServletTest {
 
   @Test
   public void testPostSuccessful() {
-    ServiceTunnelServlet s = new ServiceTunnelServlet();
+    ServiceTunnelService s = new ServiceTunnelService();
     Class[] parameterTypes = new Class[]{String.class};
     Object[] args = new Object[]{"test"};
     ServiceTunnelRequest req = new ServiceTunnelRequest(IPingService.class.getName(), "ping", parameterTypes, args);
     req.setUserAgent(UserAgents.createDefault().createIdentifier());
-    ServiceTunnelResponse res = s.doPost(req);
+    ServiceTunnelResponse res = s.evaluate(req);
     assertEquals("test", res.getData());
     assertNull(res.getException());
     assertEquals(0, res.getNotifications().size());

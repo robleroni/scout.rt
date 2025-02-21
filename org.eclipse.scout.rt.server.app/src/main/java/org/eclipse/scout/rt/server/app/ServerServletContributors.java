@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2010, 2024 BSI Business Systems Integration AG
+ * Copyright (c) 2010, 2025 BSI Business Systems Integration AG
  *
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
@@ -17,7 +17,6 @@ import org.eclipse.scout.rt.jetty.IServletContributor;
 import org.eclipse.scout.rt.jetty.IServletFilterContributor;
 import org.eclipse.scout.rt.platform.Order;
 import org.eclipse.scout.rt.platform.util.CollectionUtility;
-import org.eclipse.scout.rt.server.ServiceTunnelServlet;
 import org.eclipse.scout.rt.server.commons.healthcheck.HealthCheckServlet;
 
 /**
@@ -39,8 +38,7 @@ public final class ServerServletContributors {
 
   /**
    * Subclasses must register a filter on `"/*"` that takes care of authentication. If no such filter is registered, all
-   * resources provided by registered servlets (e.g. {@link ServiceTunnelServletContributor}) are accessible without
-   * authentication.
+   * resources provided by registered servlets are accessible without authentication.
    * <p>
    * The paths provided by {@link #getFilterExcludes()} should be excluded from authentication.
    */
@@ -73,15 +71,6 @@ public final class ServerServletContributors {
     @Override
     public void contribute(ServletContextHandler handler) {
       handler.addServlet(HealthCheckServlet.class, "/status");
-    }
-  }
-
-  @Order(2000)
-  public static class ServiceTunnelServletContributor implements IServletContributor {
-
-    @Override
-    public void contribute(ServletContextHandler handler) {
-      handler.addServlet(ServiceTunnelServlet.class, "/process");
     }
   }
 }

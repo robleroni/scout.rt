@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2010, 2023 BSI Business Systems Integration AG
+ * Copyright (c) 2010, 2025 BSI Business Systems Integration AG
  *
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
@@ -9,7 +9,6 @@
  */
 package org.eclipse.scout.rt.client.servicetunnel.http;
 
-import java.net.URL;
 import java.util.List;
 
 import org.eclipse.scout.rt.client.clientnotification.ClientNotificationDispatcher;
@@ -39,10 +38,6 @@ public class ClientHttpServiceTunnel extends HttpServiceTunnel implements IClien
 
   public ClientHttpServiceTunnel() {
     super();
-  }
-
-  public ClientHttpServiceTunnel(URL url) {
-    super(url);
   }
 
   @Override

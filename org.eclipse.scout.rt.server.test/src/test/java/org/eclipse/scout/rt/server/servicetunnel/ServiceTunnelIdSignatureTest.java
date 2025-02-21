@@ -23,6 +23,8 @@ import java.util.List;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import jakarta.ws.rs.WebApplicationException;
+import jakarta.ws.rs.core.Response.Status;
 
 import org.eclipse.scout.rt.dataobject.DataObjectHolder;
 import org.eclipse.scout.rt.dataobject.DoEntity;
@@ -38,14 +40,16 @@ import org.eclipse.scout.rt.platform.context.RunContexts;
 import org.eclipse.scout.rt.platform.exception.PlatformException;
 import org.eclipse.scout.rt.platform.util.ImmutablePair;
 import org.eclipse.scout.rt.platform.util.Pair;
-import org.eclipse.scout.rt.server.ServiceTunnelServlet;
+import org.eclipse.scout.rt.rest.jersey.TestJerseyMockConnector;
+import org.eclipse.scout.rt.rest.jersey.TestingRestClientConfigFactory;
+import org.eclipse.scout.rt.rest.jersey.fixture.SingleIdDo;
+import org.eclipse.scout.rt.server.ServiceTunnelService;
 import org.eclipse.scout.rt.server.TestServerSession;
 import org.eclipse.scout.rt.server.commons.BufferedServletInputStream;
 import org.eclipse.scout.rt.server.commons.BufferedServletOutputStream;
+import org.eclipse.scout.rt.server.commons.servlet.IHttpServletRoundtrip;
 import org.eclipse.scout.rt.shared.SharedConfigProperties.ServiceTunnelTargetUrlProperty;
-import org.eclipse.scout.rt.shared.http.AbstractHttpTransportManager;
-import org.eclipse.scout.rt.shared.http.IHttpTransportManager;
-import org.eclipse.scout.rt.shared.servicetunnel.IServiceTunnelContentHandler;
+import org.eclipse.scout.rt.shared.servicetunnel.BinaryServiceTunnelContentHandler;
 import org.eclipse.scout.rt.shared.servicetunnel.ServiceTunnelOptions;
 import org.eclipse.scout.rt.shared.servicetunnel.ServiceTunnelRequest;
 import org.eclipse.scout.rt.shared.servicetunnel.ServiceTunnelResponse;
@@ -63,12 +67,6 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Mockito;
 
-import com.google.api.client.http.HttpRequestFactory;
-import com.google.api.client.http.HttpResponse;
-import com.google.api.client.http.HttpTransport;
-import com.google.api.client.testing.http.MockHttpTransport;
-import com.google.api.client.testing.http.MockLowLevelHttpResponse;
-
 @RunWith(ServerTestRunner.class)
 @RunWithServerSession(TestServerSession.class)
 @RunWithSubject("default")
@@ -82,14 +80,15 @@ public class ServiceTunnelIdSignatureTest {
   @BeforeClass
   public static void beforeClass() {
     s_beans = BeanTestingHelper.get().registerBeans(
-        new BeanMetaData(P_IdCodec.class).withReplace(true),
-        new BeanMetaData(P_HttpServiceTunnel.class).withReplace(true).withApplicationScoped(true)
+        new BeanMetaData(P_IdCodec.class).withReplace(true)
     );
+    BEANS.get(TestingRestClientConfigFactory.class).setConnectorProvider((client, runtimeConfig) -> BEANS.get(TestJerseyMockConnector.class));
   }
 
   @AfterClass
   public static void afterClass() {
     BeanTestingHelper.get().unregisterBeans(s_beans);
+    BEANS.get(TestingRestClientConfigFactory.class).resetConnectorProvider();
   }
 
   @Test
@@ -114,7 +113,7 @@ public class ServiceTunnelIdSignatureTest {
   protected Pair<Object /* echo response */, String /* id signature request header */> callServiceTunnelEchoService(Object o, Object echoResponseRaw, boolean idSignature) throws IOException {
     when(mockUrl.getValue()).thenReturn("http://localhost");
 
-    var serviceTunnelContentHandler = BEANS.get(IServiceTunnelContentHandler.class);
+    var serviceTunnelContentHandler = BEANS.get(BinaryServiceTunnelContentHandler.class);
     serviceTunnelContentHandler.initialize();
 
     // create service tunnel response
@@ -122,15 +121,16 @@ public class ServiceTunnelIdSignatureTest {
     serviceTunnelContentHandler.writeResponse(serviceTunnelResponseOutputStream, new ServiceTunnelResponse(echoResponseRaw));
 
     // create http response returning service tunnel response
-    var response = new MockLowLevelHttpResponse().setContent(serviceTunnelResponseOutputStream.toByteArray());
-    BEANS.get(P_HttpServiceTunnel.class).setNextLowLevelHttpResponse(response);
+    TestJerseyMockConnector testJerseyMockConnector = BEANS.get(TestJerseyMockConnector.class);
+    testJerseyMockConnector.setNextResponseStatus(Status.OK);
+    byte[] response = serviceTunnelResponseOutputStream.toByteArray();
+    testJerseyMockConnector.setNextResponseEntityStream(new ByteArrayInputStream(response));
 
     // call echo service
     var echoResponse = ServiceTunnelUtility.createProxy(IEchoService.class, ServiceTunnelOptions.create().withIdSignature(idSignature)).echo(o);
 
     // get id signature request header
-    var request = BEANS.get(P_HttpServiceTunnel.class).getLastHttpResponse().getRequest();
-    var idSignatureRequestHeader = (String) request.getHeaders().get(HttpServiceTunnel.ID_SIGNATURE_HTTP_HEADER);
+    var idSignatureRequestHeader = testJerseyMockConnector.getLastRequestHeaders().get(HttpServiceTunnel.ID_SIGNATURE_HTTP_HEADER);
 
     return ImmutablePair.of(echoResponse, idSignatureRequestHeader);
   }
@@ -148,13 +148,13 @@ public class ServiceTunnelIdSignatureTest {
     assertServiceTunnelResponse(createSingleIdDo(), callServiceTunnelServletEchoService(new EchoBean(createSingleIdDoRaw(true)), true));
   }
 
-  protected ServiceTunnelResponse callServiceTunnelServletEchoService(Object o, boolean idSignature) throws IOException, ServletException {
+  protected ServiceTunnelResponse callServiceTunnelServletEchoService(Object o, boolean idSignature) throws IOException {
     // create service tunnel request
     var serviceTunnelRequest = new ServiceTunnelRequest(IEchoService.class.getName(), "echo", new Class[]{Object.class}, new Object[]{o});
     serviceTunnelRequest.setUserAgent("UNKNOWN|UNKNOWN|UNKNOWN|UNKNOWN|UNKNOWN");
     serviceTunnelRequest.setSessionId("4242");
 
-    var serviceTunnelContentHandler = BEANS.get(IServiceTunnelContentHandler.class);
+    var serviceTunnelContentHandler = BEANS.get(BinaryServiceTunnelContentHandler.class);
     serviceTunnelContentHandler.initialize();
 
     // create servlet input stream returning the service tunnel request
@@ -179,9 +179,17 @@ public class ServiceTunnelIdSignatureTest {
     Mockito.when(response.getOutputStream()).thenReturn(servletOutputStream);
 
     // call service tunnel servlet
-    new ServiceTunnelServlet().service(request, response);
+    try {
+      RunContexts.copyCurrent()
+          .withThreadLocal(IHttpServletRoundtrip.CURRENT_HTTP_SERVLET_REQUEST, request)
+          .withThreadLocal(IHttpServletRoundtrip.CURRENT_HTTP_SERVLET_RESPONSE, response)
+          .run(() -> new ServiceTunnelService().incomingRequest(request.getInputStream(), response.getOutputStream()));
+    }
+    catch (WebApplicationException t) {
+      // error occurred -> no response to read
+      return null;
+    }
 
-    // error occurred -> no response to read
     if (servletOutputStream.getContent().length == 0) {
       return null;
     }
@@ -251,54 +259,6 @@ public class ServiceTunnelIdSignatureTest {
     @Override
     protected byte[] getIdSignaturePassword() {
       return "42".getBytes(StandardCharsets.UTF_8);
-    }
-  }
-
-  protected static class P_HttpServiceTunnel extends HttpServiceTunnel {
-
-    private MockHttpTransport m_transport;
-    private HttpResponse m_lastResponse;
-
-    public void setNextLowLevelHttpResponse(MockLowLevelHttpResponse response) {
-      m_transport = new MockHttpTransport.Builder()
-          .setLowLevelHttpResponse(response)
-          .build();
-    }
-
-    public HttpResponse getLastHttpResponse() {
-      return m_lastResponse;
-    }
-
-    @Override
-    protected HttpResponse executeRequestInternal(ServiceTunnelRequest call, byte[] callData) throws IOException {
-      m_lastResponse = null;
-
-      m_lastResponse = super.executeRequestInternal(call, callData);
-      m_transport = null;
-
-      return m_lastResponse;
-    }
-
-    @Override
-    protected IHttpTransportManager getHttpTransportManager() {
-
-      return new AbstractHttpTransportManager() {
-
-        @Override
-        public String getName() {
-          return "scout.transport.test-service-tunnel-id-signature";
-        }
-
-        @Override
-        public HttpTransport getHttpTransport() {
-          return m_transport;
-        }
-
-        @Override
-        public HttpRequestFactory getHttpRequestFactory() {
-          return m_transport.createRequestFactory(createHttpRequestInitializer());
-        }
-      };
     }
   }
 }

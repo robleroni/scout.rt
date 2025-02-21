@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2010, 2023 BSI Business Systems Integration AG
+ * Copyright (c) 2010, 2025 BSI Business Systems Integration AG
  *
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
@@ -31,7 +31,7 @@ import org.mockito.stubbing.Answer;
  * Tests that transactional client notifications are transferred with the response.
  *
  * @author jgu
- * @see ServiceTunnelServlet
+ * @see ServiceTunnelService
  */
 @RunWith(PlatformTestRunner.class)
 public class PiggyBackClientNotificationTest {
@@ -50,12 +50,12 @@ public class PiggyBackClientNotificationTest {
 
   @Test
   public void testPiggyBack() {
-    ServiceTunnelServlet s = new ServiceTunnelServlet();
+    ServiceTunnelService s = new ServiceTunnelService();
     Class[] parameterTypes = new Class[]{String.class};
     Object[] args = new Object[]{"test"};
     ServiceTunnelRequest req = new ServiceTunnelRequest(IPingService.class.getName(), "ping", parameterTypes, args);
     req.setClientNodeId(NodeId.of("testNodeId"));
-    ServiceTunnelResponse res = s.doPost(req);
+    ServiceTunnelResponse res = s.evaluate(req);
     assertEquals("pong", res.getData());
     assertNull(res.getException());
     assertEquals(1, res.getNotifications().size());

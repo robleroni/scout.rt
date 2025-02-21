@@ -12,18 +12,23 @@ package org.eclipse.scout.rt.server;
 import static org.eclipse.scout.rt.server.commons.opentelemetry.SpanNamePropagationFromDownstream.addNameToContext;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.security.AccessController;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.function.LongPredicate;
 
 import javax.security.auth.Subject;
 
-import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import jakarta.servlet.http.HttpSession;
+import jakarta.ws.rs.ForbiddenException;
+import jakarta.ws.rs.WebApplicationException;
+import jakarta.ws.rs.core.Response;
 
+import org.eclipse.scout.rt.platform.ApplicationScoped;
 import org.eclipse.scout.rt.platform.BEANS;
 import org.eclipse.scout.rt.platform.exception.DefaultExceptionTranslator;
 import org.eclipse.scout.rt.platform.transaction.TransactionCancelledError;
@@ -34,20 +39,17 @@ import org.eclipse.scout.rt.platform.util.concurrent.FutureCancelledError;
 import org.eclipse.scout.rt.platform.util.concurrent.ThreadInterruptedError;
 import org.eclipse.scout.rt.platform.util.concurrent.ThreadInterruption;
 import org.eclipse.scout.rt.platform.util.concurrent.ThreadInterruption.IRestorer;
-import org.eclipse.scout.rt.server.admin.html.AdminSession;
 import org.eclipse.scout.rt.server.commons.idempotent.DuplicateRequestException;
 import org.eclipse.scout.rt.server.commons.idempotent.SequenceNumberDuplicateDetector;
-import org.eclipse.scout.rt.server.commons.servlet.AbstractHttpServlet;
 import org.eclipse.scout.rt.server.commons.servlet.HttpServletControl;
 import org.eclipse.scout.rt.server.commons.servlet.IHttpServletRoundtrip;
-import org.eclipse.scout.rt.server.commons.servlet.ServletExceptionTranslator;
 import org.eclipse.scout.rt.server.commons.servlet.cache.HttpCacheControl;
 import org.eclipse.scout.rt.server.context.HttpServerRunContextProducer;
 import org.eclipse.scout.rt.server.context.RunMonitorCancelRegistry;
 import org.eclipse.scout.rt.server.context.RunMonitorCancelRegistry.IRegistrationHandle;
 import org.eclipse.scout.rt.server.context.ServerRunContext;
 import org.eclipse.scout.rt.server.context.ServerRunContexts;
-import org.eclipse.scout.rt.shared.servicetunnel.IServiceTunnelContentHandler;
+import org.eclipse.scout.rt.shared.servicetunnel.BinaryServiceTunnelContentHandler;
 import org.eclipse.scout.rt.shared.servicetunnel.ServiceTunnelOptions;
 import org.eclipse.scout.rt.shared.servicetunnel.ServiceTunnelRequest;
 import org.eclipse.scout.rt.shared.servicetunnel.ServiceTunnelResponse;
@@ -58,89 +60,52 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Use this Servlet to dispatch scout UI service requests using {@link ServiceTunnelRequest},
- * {@link ServiceTunnelResponse} and any {@link IServiceTunnelContentHandler} implementation.
+ * {@link ServiceTunnelResponse} and the {@link BinaryServiceTunnelContentHandler} implementation.
  */
-public class ServiceTunnelServlet extends AbstractHttpServlet {
-  private static final long serialVersionUID = 1L;
-  private static final Logger LOG = LoggerFactory.getLogger(ServiceTunnelServlet.class);
+@ApplicationScoped
+public class ServiceTunnelService {
+  private static final Logger LOG = LoggerFactory.getLogger(ServiceTunnelService.class);
 
   protected static final String ADMIN_SESSION_KEY = "AdminSessionKey";
   protected static final String DUPLICATE_REQUEST_DETECTOR_SESSION_KEY = "DuplicateRequestDetector";
 
-  protected transient IServiceTunnelContentHandler m_contentHandler;
+  protected transient BinaryServiceTunnelContentHandler m_contentHandler;
   protected transient LazyValue<HttpServerRunContextProducer> m_serverRunContextProducer = new LazyValue<>(HttpServerRunContextProducer.class);
   protected transient LazyValue<HttpServletControl> m_httpServletControl = new LazyValue<>(HttpServletControl.class);
   protected transient LazyValue<HttpCacheControl> m_httpCacheControl = new LazyValue<>(HttpCacheControl.class);
   protected transient LazyValue<ServiceOperationInvoker> m_svcInvoker = new LazyValue<>(ServiceOperationInvoker.class);
   protected transient LazyValue<RunMonitorCancelRegistry> m_runMonCancelRegistry = new LazyValue<>(RunMonitorCancelRegistry.class);
 
-  // === HTTP-GET ===
-
-  @Override
-  protected void doGet(HttpServletRequest servletRequest, HttpServletResponse servletResponse) throws IOException, ServletException {
-    if (Subject.getSubject(AccessController.getContext()) == null) {
-      servletResponse.sendError(HttpServletResponse.SC_FORBIDDEN);
-      return;
-    }
-
-    lazyInit(servletRequest, servletResponse);
-
-    BEANS.get(HttpServerRunContextProducer.class)
-        .withSessionSupport(false)
-        .produce(servletRequest, servletResponse)
-        .run(() -> invokeAdminService(ServerRunContexts.copyCurrent()), ServletExceptionTranslator.class);
-  }
-
   /**
-   * Method invoked to delegate the HTTP request to the 'admin service'.
+   * Check the {@link HttpServletRequest} if signature creation needs to be enabled. Default implementation checks
+   * the {@link HttpServiceTunnel#ID_SIGNATURE_HTTP_HEADER}.
    */
-  @SuppressWarnings("squid:S00112")
-  protected void invokeAdminService(final ServerRunContext serverRunContext) throws Exception {
-    serverRunContext.run(() -> {
-      final HttpServletRequest servletRequest = IHttpServletRoundtrip.CURRENT_HTTP_SERVLET_REQUEST.get();
-      final HttpServletResponse servletResponse = IHttpServletRoundtrip.CURRENT_HTTP_SERVLET_RESPONSE.get();
-
-      m_httpServletControl.get().doDefaults(ServiceTunnelServlet.this, servletRequest, servletResponse);
-
-      getAdminSession(servletRequest).serviceRequest(servletRequest, servletResponse);
-    }, DefaultExceptionTranslator.class);
+  protected boolean enableSignature(HttpServletRequest servletRequest) {
+    return Boolean.TRUE.toString().equalsIgnoreCase(servletRequest.getHeader(HttpServiceTunnel.ID_SIGNATURE_HTTP_HEADER));
   }
 
-  protected AdminSession getAdminSession(HttpServletRequest servletRequest) {
-    HttpSession httpSession = servletRequest.getSession();
-    AdminSession adminSession = (AdminSession) httpSession.getAttribute(ADMIN_SESSION_KEY);
-    if (adminSession == null) {
-      adminSession = new AdminSession();
-      httpSession.setAttribute(ADMIN_SESSION_KEY, adminSession);
-    }
-    return adminSession;
-  }
-
-  // === HTTP-POST ===
-
-  @Override
-  protected void doPost(HttpServletRequest servletRequest, HttpServletResponse servletResponse) throws ServletException, IOException {
+  // incoming request
+  public void incomingRequest(InputStream in, OutputStream out) {
     if (Subject.getSubject(AccessController.getContext()) == null) {
-      servletResponse.sendError(HttpServletResponse.SC_FORBIDDEN);
-      return;
+      throw new ForbiddenException();
     }
 
-    lazyInit(servletRequest, servletResponse);
+    lazyInit(IHttpServletRoundtrip.CURRENT_HTTP_SERVLET_REQUEST.get(), IHttpServletRoundtrip.CURRENT_HTTP_SERVLET_RESPONSE.get());
 
     try {
       m_serverRunContextProducer.get()
           .getInnerRunContextProducer()
-          .produce(servletRequest, servletResponse)
-          .withProperties(enableSignature(servletRequest) ? Map.of(ServiceTunnelOptions.ID_SIGNATURE_PROP, true) : Map.of())
+          .produce(IHttpServletRoundtrip.CURRENT_HTTP_SERVLET_REQUEST.get(), IHttpServletRoundtrip.CURRENT_HTTP_SERVLET_RESPONSE.get())
+          .withProperties(enableSignature(IHttpServletRoundtrip.CURRENT_HTTP_SERVLET_REQUEST.get()) ? Map.of(ServiceTunnelOptions.ID_SIGNATURE_PROP, true) : Map.of())
           .run(() -> {
-            ServiceTunnelRequest serviceRequest = deserializeServiceRequest();
-            ServiceTunnelResponse serviceResponse = doPost(serviceRequest);
+            ServiceTunnelRequest serviceRequest = deserializeServiceRequest(in);
+            ServiceTunnelResponse serviceResponse = evaluate(serviceRequest);
 
             // Clear the current thread's interruption status before writing the response to the output stream.
             // Otherwise, the stream gets silently corrupted, which triggers  a repetition of the current request by Java connection mechanism.
             IRestorer interruption = ThreadInterruption.clear();
             try {
-              serializeServiceResponse(serviceResponse);
+              serializeServiceResponse(out, serviceResponse);
             }
             finally {
               interruption.restore();
@@ -155,7 +120,7 @@ public class ServiceTunnelServlet extends AbstractHttpServlet {
       else {
         LOG.warn("Duplicate Request{}", interruptInfo(interrupted), e);
       }
-      servletResponse.sendError(HttpServletResponse.SC_CONFLICT, "Request is a duplicate");
+      throw new WebApplicationException("Request is a duplicate", Response.Status.CONFLICT);
     }
     catch (Throwable e) {//NOSONAR
       final boolean interrupted = Thread.interrupted();
@@ -168,32 +133,25 @@ public class ServiceTunnelServlet extends AbstractHttpServlet {
         if (isCancellation(e)) {
           // cancelled by client
           LOG.debug("Cancelled by client{}", interruptInfo(interrupted), e);
-          servletResponse.sendError(HttpServletResponse.SC_ACCEPTED, "Request processing was cancelled");
+          throw new WebApplicationException("Request processing was cancelled", Response.Status.ACCEPTED);
         }
         else {
           // other interruption
           LOG.info("Interruption{}", interruptInfo(interrupted), e);
-          servletResponse.sendError(HttpServletResponse.SC_ACCEPTED, "Request processing was interrupted");
+          throw new WebApplicationException("Request processing was interrupted", Response.Status.ACCEPTED);
         }
       }
       else {
-        LOG.error("Client={}@{}/{}", servletRequest.getRemoteUser(), servletRequest.getRemoteAddr(), servletRequest.getRemoteHost(), e);
-        servletResponse.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+        Optional<HttpServletRequest> optRequest = Optional.ofNullable(IHttpServletRoundtrip.CURRENT_HTTP_SERVLET_REQUEST.get());
+        LOG.error("Client={}@{}/{}", optRequest.map(HttpServletRequest::getRemoteUser), optRequest.map(HttpServletRequest::getRemoteAddr), optRequest.map(HttpServletRequest::getRemoteHost), e);
+        throw new WebApplicationException("Error while processing request", Response.Status.INTERNAL_SERVER_ERROR);
       }
     }
   }
 
-  /**
-   * Check the {@link HttpServletRequest} if signature creation needs to be enabled. Default implementation checks
-   * the {@link HttpServiceTunnel#ID_SIGNATURE_HTTP_HEADER}.
-   */
-  protected boolean enableSignature(HttpServletRequest servletRequest) {
-    return Boolean.TRUE.toString().equalsIgnoreCase(servletRequest.getHeader(HttpServiceTunnel.ID_SIGNATURE_HTTP_HEADER));
-  }
-
-  protected ServiceTunnelResponse doPost(ServiceTunnelRequest serviceRequest) {
+  protected ServiceTunnelResponse evaluate(ServiceTunnelRequest serviceRequest) {
     addNameToContext(() -> buildSpanName(serviceRequest));
-    return doPostInternal(serviceRequest);
+    return evaluateInternal(serviceRequest);
   }
 
   protected String buildSpanName(ServiceTunnelRequest serviceRequest) {
@@ -202,7 +160,7 @@ public class ServiceTunnelServlet extends AbstractHttpServlet {
     return serviceName + "." + serviceRequest.getOperation();
   }
 
-  protected ServiceTunnelResponse doPostInternal(ServiceTunnelRequest serviceRequest) {
+  protected ServiceTunnelResponse evaluateInternal(ServiceTunnelRequest serviceRequest) {
     if (LOG.isDebugEnabled()) {
       LOG.debug("requestSequence {} {}.{}", serviceRequest.getRequestSequence(), serviceRequest.getServiceInterfaceClassName(), serviceRequest.getOperation());
     }
@@ -275,28 +233,26 @@ public class ServiceTunnelServlet extends AbstractHttpServlet {
   /**
    * Method invoked to deserialize a service request to be given to the service handler.
    */
-  protected ServiceTunnelRequest deserializeServiceRequest() throws IOException, ClassNotFoundException {
-    return m_contentHandler.readRequest(IHttpServletRoundtrip.CURRENT_HTTP_SERVLET_REQUEST.get().getInputStream());
+  protected ServiceTunnelRequest deserializeServiceRequest(InputStream in) throws IOException, ClassNotFoundException {
+    return m_contentHandler.readRequest(in);
   }
 
   /**
    * Method invoked to serialize a service response to be sent back to the client.
    */
-  protected void serializeServiceResponse(ServiceTunnelResponse serviceResponse) throws IOException {
+  protected void serializeServiceResponse(OutputStream out, ServiceTunnelResponse serviceResponse) throws IOException {
     HttpServletRequest req = IHttpServletRoundtrip.CURRENT_HTTP_SERVLET_REQUEST.get();
     HttpServletResponse resp = IHttpServletRoundtrip.CURRENT_HTTP_SERVLET_RESPONSE.get();
 
-    m_httpServletControl.get().doDefaults(this, req, resp);
-
     m_httpCacheControl.get().checkAndSetCacheHeaders(req, resp, null);
-    resp.setContentType(m_contentHandler.getContentType());
+
     m_contentHandler.writeResponse(resp.getOutputStream(), serviceResponse);
   }
 
   // === INITIALIZATION ===
 
   /**
-   * Method invoked by 'HTTP-GET' and 'HTTP-POST' to identify the session-class and to initialize the content handler
+   * Method invoked by {@link #incomingRequest(InputStream, OutputStream)} to identify the session-class and to initialize the content handler
    * for serialization/deserialization.
    */
   protected void lazyInit(HttpServletRequest servletRequest, HttpServletResponse servletResponse) {
@@ -307,12 +263,12 @@ public class ServiceTunnelServlet extends AbstractHttpServlet {
   }
 
   /**
-   * Create the (reusable) content handler (soap, xml, binary) for marshalling scout remote service calls
+   * Create the (reusable) {@link BinaryServiceTunnelContentHandler} for marshalling scout remote service calls
    * <p>
    * This method is part of the protected api and can be overridden.
    */
-  protected IServiceTunnelContentHandler createContentHandler() {
-    IServiceTunnelContentHandler e = BEANS.get(IServiceTunnelContentHandler.class);
+  protected BinaryServiceTunnelContentHandler createContentHandler() {
+    BinaryServiceTunnelContentHandler e = BEANS.get(BinaryServiceTunnelContentHandler.class);
     e.initialize();
     return e;
   }
