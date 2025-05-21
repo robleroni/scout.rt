@@ -423,16 +423,7 @@ export class Table extends Widget implements TableModel, Filterable<TableRow> {
   protected _initColumns() {
     let cols = this.columns as ObjectOrChildModel<Column<any>>[];
     this.columns = cols.map((colModel, index) => {
-      let column: Column<any>;
-      let columnOrModel = colModel as FullModelOf<Column<any>>;
-      if (columnOrModel instanceof Column) {
-        column = columnOrModel;
-        column._setParent(this);
-      } else {
-        columnOrModel.parent = this;
-        column = scout.create(columnOrModel);
-      }
-
+      const column = this._ensureColumn(colModel);
       if (column.index < 0) {
         column.index = index;
       }
@@ -912,7 +903,7 @@ export class Table extends Widget implements TableModel, Filterable<TableRow> {
   onColumnVisibilityChanged() {
     this.columnLayoutDirty = true;
     this._calculateTableNodeColumn();
-    this.trigger('columnStructureChanged');
+    this._triggerColumnStructureChanged(this.columns, this.columns);
 
     // Rebuild aggregate rows. This computes missing aggregate values for previously hidden columns. It is also a convenient
     // way to fix the column indices. The aggregate table control was already updated via 'columnStructureChanged' event.
@@ -4973,16 +4964,17 @@ export class Table extends Widget implements TableModel, Filterable<TableRow> {
   protected _setRowIconVisible(rowIconVisible: boolean) {
     this._setProperty('rowIconVisible', rowIconVisible);
     let column = this.rowIconColumn;
+    const columns = [...this.columns];
     if (this.rowIconVisible && !column) {
       this._insertRowIconColumn();
       this._calculateTableNodeColumn();
-      this.trigger('columnStructureChanged');
+      this._triggerColumnStructureChanged(columns, this.columns);
     } else if (!this.rowIconVisible && column) {
       column.destroy();
       arrays.remove(this.columns, column);
       this.rowIconColumn = null;
       this._calculateTableNodeColumn();
-      this.trigger('columnStructureChanged');
+      this._triggerColumnStructureChanged(columns, this.columns);
     }
   }
 
@@ -5260,16 +5252,17 @@ export class Table extends Widget implements TableModel, Filterable<TableRow> {
   protected _updateCheckableColumn() {
     let column = this.checkableColumn;
     let showCheckBoxes = this.checkable && scout.isOneOf(this.checkableStyle, Table.CheckableStyle.CHECKBOX, Table.CheckableStyle.CHECKBOX_TABLE_ROW);
+    const columns = [...this.columns];
     if (showCheckBoxes && !column) {
       this._insertBooleanColumn();
       this._calculateTableNodeColumn();
-      this.trigger('columnStructureChanged');
+      this._triggerColumnStructureChanged(columns, this.columns);
     } else if (!showCheckBoxes && column && column.guiOnly) {
       column.destroy();
       arrays.remove(this.columns, column);
       this.checkableColumn = null;
       this._calculateTableNodeColumn();
-      this.trigger('columnStructureChanged');
+      this._triggerColumnStructureChanged(columns, this.columns);
     }
   }
 
@@ -5858,15 +5851,170 @@ export class Table extends Widget implements TableModel, Filterable<TableRow> {
     return this.visibleColumns().some(column => column instanceof NumberColumn && column.aggregationFunction !== 'none');
   }
 
+  setColumns(columnOrModels: ObjectOrChildModel<Column<any>>[], initValue?: any | ((Column, TableRow) => any)) {
+    if (arrays.equals(this.columns, columnOrModels)) {
+      return;
+    }
+    this._setColumns(columnOrModels, initValue);
+    if (this.rendered) {
+      this._renderColumns();
+    }
+  }
+
+  protected _setColumns(columnOrModels: ObjectOrChildModel<Column<any>>[], initValue?: any | ((Column, TableRow) => any)) {
+    // ensure initValue function
+    if (initValue === undefined) {
+      initValue = null;
+    }
+    if (!objects.isFunction(initValue)) {
+      const value = initValue;
+      initValue = (column: Column, row: TableRow) => value;
+    }
+
+    // ensure columns
+    const columns = columnOrModels
+      .map(column => this._ensureColumn(column))
+      .filter(column => !!column);
+
+    const columnsOld = [...this.columns];
+    const columnsDeleted = this.columns.filter(column => column instanceof Column && !arrays.contains(columns, column));
+    const columnsInserted = columns.filter(column => !arrays.contains(this.columns, column));
+    const columnsCurrent = [...this.columns];
+
+    let buffering: JQuery.Deferred<void>;
+
+    // deleted columns
+    for (const column of columnsDeleted) {
+      // update index of other columns and handle cells if removed column has an index set
+      if (column.index >= 0) {
+        // update index of all columns whose index is greater than the index of the removed column
+        for (const c of columnsCurrent) {
+          if (c.index > column.index) {
+            c.index--;
+          }
+        }
+
+        // remove cells for all rows at the correct position (column.index)
+        this.rows.forEach(row => row.cells.splice(column.index, 1));
+
+      }
+
+      // destroy column and remove from current columns
+      column.destroy();
+      arrays.remove(columnsCurrent, column);
+    }
+
+    // inserted columns
+    for (const column of columnsInserted) {
+      // set index to max index + 1 if no index is provided
+      if (column.index < 0) {
+        column.index = Math.max(-1, ...columnsCurrent.map(column => column.index)) + 1;
+      }
+
+      // update index of all columns whose index is greater or equal to the index of the new column
+      for (const c of columnsCurrent) {
+        if (c.index >= column.index) {
+          c.index++;
+        }
+      }
+
+      // set updateBuffer buffering until all columns are added, otherwise column.initCell triggers updateRow before the rows cell array is modified
+      if (!buffering) {
+        buffering = $.Deferred();
+        this.updateBuffer.pushPromise(buffering.promise());
+      }
+
+      // insert new cell for all rows at the correct position (column.index)
+      this.rows.forEach(row => {
+        arrays.insert(row.cells, column.initCell(initValue(column, row), row), column.index);
+      });
+
+      // add to current columns
+      columnsCurrent.push(column);
+    }
+
+    this._setProperty('columns', columns);
+
+    // resolve buffering and trigger events
+    buffering?.resolve();
+    this._triggerColumnStructureChanged(columnsOld, this.columns);
+  }
+
+  protected _renderColumns() {
+    this.columnLayoutDirty = true;
+    this._updateRowWidth();
+    this.redraw();
+  }
+
+  protected _triggerColumnStructureChanged(columnsOld: Column<any>[], columnsNew: Column<any>[]) {
+    // create new arrays to prevent unexpected behaviour if listeners modify the arrays
+    columnsOld = [...columnsOld];
+    columnsNew = [...columnsNew];
+    this.trigger('columnStructureChanged', {columnsOld, columnsNew});
+  }
+
+  insertColumn(columnOrModel: ObjectOrChildModel<Column<any>>, position?: number, initValue?: any | ((Column, TableRow) => any)) {
+    this.insertColumns([columnOrModel], position, initValue);
+  }
+
+  insertColumns(columnOrModels: ObjectOrChildModel<Column<any>>[], position?: number, initValue?: any | ((Column, TableRow) => any)) {
+    if (!columnOrModels?.length) {
+      return;
+    }
+
+    // add columns last if no position is given
+    if (!objects.isNumber(position)) {
+      position = this.columns.length;
+    }
+
+    // remove columns from columnOrModels that are already part of this.columns
+    arrays.removeAll(columnOrModels, this.columns);
+
+    // create new columns
+    const columnsNew = [...this.columns];
+    arrays.insertAll(columnsNew, columnOrModels, position);
+
+    this.setColumns(columnsNew, initValue);
+  }
+
+  deleteColumn(column: Column) {
+    this.deleteColumns([column]);
+  }
+
+  deleteColumns(columns: Column[]) {
+    if (!columns?.length) {
+      return;
+    }
+
+    // create new columns
+    const columnsNew = [...this.columns];
+    arrays.removeAll(columnsNew, columns);
+
+    this.setColumns(columnsNew);
+  }
+
+  protected _ensureColumn<T extends Column = Column>(columnOrModel: ObjectOrChildModel<T>): T {
+    if (columnOrModel instanceof Column) {
+      columnOrModel._setParent(this);
+      return columnOrModel;
+    }
+
+    return scout.create({
+      ...columnOrModel,
+      parent: this
+    }) as T;
+  }
+
   /**
    * Rebuilds the header.<br>
    * Does not modify the rows, it expects a deleteAll and insert operation to follow which will do the job.
    */
   updateColumnStructure(columns: Column<any>[]) {
     this._destroyColumns();
+    const columnsOld = [...this.columns];
     this.columns = columns;
     this._initColumns();
-    this.trigger('columnStructureChanged');
+    this._triggerColumnStructureChanged(columnsOld, this.columns);
     if (this._isDataRendered()) {
       this._updateRowWidth();
       this.$rows(true).css('width', this.rowWidth);
