@@ -51,15 +51,11 @@ export class Notification extends Widget implements NotificationModel {
   }
 
   protected _resolveStatusTextKeys(properties: string[]) {
-    properties.forEach(property => {
-      texts.resolveTextProperty(this.status, property, this.session);
-    });
+    texts.resolveTextProperties(this.status, properties, this.session);
   }
 
   protected _resolveStatusIconIds(properties: string[]) {
-    properties.forEach(property => {
-      icons.resolveIconProperty(this.status, property);
-    });
+    icons.resolveIconProperties(this.status, properties);
   }
 
   protected override _render() {

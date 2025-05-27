@@ -175,6 +175,8 @@ describe('texts', () => {
         foo: 'bar'
       };
 
+      expect(() => texts.resolveTextProperty(obj2, 'abc')).toThrow(); // missing session
+
       texts.resolveTextProperty(obj2, null, session);
       expect(obj2.text).toBe('deCH');
       expect(obj2.xyz).toBe('${textKey:theKey}');
@@ -192,6 +194,82 @@ describe('texts', () => {
 
       texts.resolveTextProperty(obj2, 'doesNotExist', session);
       expect(obj2.text).toBe('deCH');
+      expect(obj2.xyz).toBe('deCH');
+      expect(obj2.foo).toBe('bar');
+    });
+
+    it('resolves text properties', () => {
+      texts.init(model);
+
+      setFixtures(sandbox());
+      let session = sandboxSession();
+
+      // With session on object
+
+      let obj = {
+        session: session,
+        text: '${textKey:theKey}',
+        text2: '${textKey:theKey}',
+        xyz: '${textKey:theKey}',
+        foo: 'bar'
+      };
+
+      texts.resolveTextProperties(obj, null);
+      expect(obj.text).toBe('${textKey:theKey}');
+      expect(obj.text2).toBe('${textKey:theKey}');
+      expect(obj.xyz).toBe('${textKey:theKey}');
+      expect(obj.foo).toBe('bar');
+
+      texts.resolveTextProperties(obj, []);
+      expect(obj.text).toBe('${textKey:theKey}');
+      expect(obj.text2).toBe('${textKey:theKey}');
+      expect(obj.xyz).toBe('${textKey:theKey}');
+      expect(obj.foo).toBe('bar');
+
+      texts.resolveTextProperties(obj, ['xyz', 'doesNotExist', 'foo', 'text']);
+      expect(obj.text).toBe('deCH');
+      expect(obj.text2).toBe('${textKey:theKey}');
+      expect(obj.xyz).toBe('deCH');
+      expect(obj.foo).toBe('bar');
+
+      texts.resolveTextProperties(obj, ['text2']);
+      expect(obj.text).toBe('deCH');
+      expect(obj.text2).toBe('deCH');
+      expect(obj.xyz).toBe('deCH');
+      expect(obj.foo).toBe('bar');
+
+      // Without session on object
+
+      let obj2 = {
+        text: '${textKey:theKey}',
+        text2: '${textKey:theKey}',
+        xyz: '${textKey:theKey}',
+        foo: 'bar'
+      };
+
+      expect(() => texts.resolveTextProperties(obj2, ['abc'])).toThrow(); // missing session
+
+      texts.resolveTextProperties(obj2, null, session);
+      expect(obj2.text).toBe('${textKey:theKey}');
+      expect(obj2.text2).toBe('${textKey:theKey}');
+      expect(obj2.xyz).toBe('${textKey:theKey}');
+      expect(obj2.foo).toBe('bar');
+
+      texts.resolveTextProperties(obj2, [], session);
+      expect(obj2.text).toBe('${textKey:theKey}');
+      expect(obj2.text2).toBe('${textKey:theKey}');
+      expect(obj2.xyz).toBe('${textKey:theKey}');
+      expect(obj2.foo).toBe('bar');
+
+      texts.resolveTextProperties(obj2, ['xyz', 'doesNotExist', 'foo', 'text'], session);
+      expect(obj2.text).toBe('deCH');
+      expect(obj2.text2).toBe('${textKey:theKey}');
+      expect(obj2.xyz).toBe('deCH');
+      expect(obj2.foo).toBe('bar');
+
+      texts.resolveTextProperties(obj2, ['text2'], session);
+      expect(obj2.text).toBe('deCH');
+      expect(obj2.text2).toBe('deCH');
       expect(obj2.xyz).toBe('deCH');
       expect(obj2.foo).toBe('bar');
     });

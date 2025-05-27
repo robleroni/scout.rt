@@ -101,4 +101,42 @@ describe('icons', () => {
     expect(obj.foo).toBe(icons.ANGLE_UP);
     expect(obj.bar).toBe(icons.ANGLE_UP);
   });
+
+  it('resolves iconId properties', () => {
+    let obj = {
+      iconId: '${iconId:ANGLE_UP}',
+      iconId2: '${iconId:ANGLE_UP}',
+      name: 'xyz',
+      foo: '${iconId:ANGLE_UP}',
+      bar: icons.ANGLE_UP
+    };
+
+    icons.resolveIconProperties(obj, null);
+    expect(obj.iconId).toBe('${iconId:ANGLE_UP}');
+    expect(obj.iconId2).toBe('${iconId:ANGLE_UP}');
+    expect(obj.name).toBe('xyz');
+    expect(obj.foo).toBe('${iconId:ANGLE_UP}');
+    expect(obj.bar).toBe(icons.ANGLE_UP);
+
+    icons.resolveIconProperties(obj, []);
+    expect(obj.iconId).toBe('${iconId:ANGLE_UP}');
+    expect(obj.iconId2).toBe('${iconId:ANGLE_UP}');
+    expect(obj.name).toBe('xyz');
+    expect(obj.foo).toBe('${iconId:ANGLE_UP}');
+    expect(obj.bar).toBe(icons.ANGLE_UP);
+
+    icons.resolveIconProperties(obj, ['foo', 'doesNotExist', 'name', 'iconId']);
+    expect(obj.iconId).toBe(icons.ANGLE_UP);
+    expect(obj.iconId2).toBe('${iconId:ANGLE_UP}');
+    expect(obj.name).toBe('xyz');
+    expect(obj.foo).toBe(icons.ANGLE_UP);
+    expect(obj.bar).toBe(icons.ANGLE_UP);
+
+    icons.resolveIconProperties(obj, ['iconId2']);
+    expect(obj.iconId).toBe(icons.ANGLE_UP);
+    expect(obj.iconId2).toBe(icons.ANGLE_UP);
+    expect(obj.name).toBe('xyz');
+    expect(obj.foo).toBe(icons.ANGLE_UP);
+    expect(obj.bar).toBe(icons.ANGLE_UP);
+  });
 });

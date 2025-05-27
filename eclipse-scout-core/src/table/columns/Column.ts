@@ -225,15 +225,11 @@ export class Column<TValue = string> extends PropertyEventEmitter implements Col
   }
 
   protected _resolveTextKeys(properties: string[]) {
-    properties.forEach(property => {
-      texts.resolveTextProperty(this, property);
-    });
+    texts.resolveTextProperties(this, properties);
   }
 
   protected _resolveIconIds(properties: string[]) {
-    properties.forEach(property => {
-      icons.resolveIconProperty(this, property);
-    });
+    icons.resolveIconProperties(this, properties);
   }
 
   /**

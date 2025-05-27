@@ -7,7 +7,7 @@
  *
  * SPDX-License-Identifier: EPL-2.0
  */
-import {IconDesc, strings} from '../index';
+import {arrays, IconDesc, strings} from '../index';
 import $ from 'jquery';
 
 export const icons = {
@@ -174,5 +174,18 @@ export const icons = {
     if (newValue !== value) {
       object[iconProperty] = newValue;
     }
+  },
+
+  /**
+   * Converts the values of the specified properties from the form `'${iconId:...}'` into a resolved iconId.
+   * a value remains unchanged if it does not match the {@linkplain icons#resolveIconId supported format}.
+   *
+   * @param object non-null object having an icon property which may contain an iconId
+   * @param iconProperties names of the properties on the given object which may contain an iconId.
+   */
+  resolveIconProperties(object: object, iconProperties: string[]) {
+    arrays.ensure(iconProperties).forEach(property => {
+      icons.resolveIconProperty(object, property);
+    });
   }
 };

@@ -197,7 +197,7 @@ export const texts = {
    *
    * @param object non-null object having a text property which may contain a text key (must not be null)
    * @param textProperty name of the property on the given object which may contain a text key. By default, 'text' is used as property name.
-   * @param session session defining the locale to be used when resolving a text. Can be undefined when given 'object' has a session property, otherwise mandatory.
+   * @param session session defining the locale to be used when resolving a text. Can be undefined when the given `object` has a session property, otherwise mandatory.
    */
   resolveTextProperty(object: any, textProperty?: string, session?: Session) {
     textProperty = textProperty || 'text';
@@ -207,6 +207,20 @@ export const texts = {
     if (text !== value) {
       object[textProperty] = text;
     }
+  },
+
+  /**
+   * Converts the values of the specified properties from the form `'${textKey:...}'` into a resolved text.
+   * A value remains unchanged if it does not match the {@linkplain texts#resolveText supported format}.
+   *
+   * @param object non-null object having a text property which may contain a text key (must not be null)
+   * @param textProperties names of the properties on the given object which may contain a text key.
+   * @param session session defining the locale to be used when resolving a text. Can be undefined when the given `object` has a session property, otherwise mandatory.
+   */
+  resolveTextProperties(object: any, textProperties: string[], session?: Session) {
+    arrays.ensure(textProperties).forEach(property => {
+      texts.resolveTextProperty(object, property, session);
+    });
   },
 
   /**
