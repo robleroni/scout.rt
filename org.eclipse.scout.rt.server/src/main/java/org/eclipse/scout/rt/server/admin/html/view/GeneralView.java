@@ -9,7 +9,6 @@
  */
 package org.eclipse.scout.rt.server.admin.html.view;
 
-import java.security.AccessController;
 import java.security.Principal;
 import java.util.Date;
 
@@ -95,7 +94,7 @@ public class GeneralView extends DefaultView {
       SecurityManager sm = System.getSecurityManager();
       p.print("&nbsp;&nbsp;SecurityManager: " + sm);
       p.br();
-      Subject subject = Subject.getSubject(AccessController.getContext());
+      Subject subject = Subject.current();
       p.print("&nbsp;&nbsp;Subject: " + VerboseUtility.dumpObject(subject));
       p.br();
       if (subject != null) {

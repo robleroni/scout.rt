@@ -9,7 +9,6 @@
  */
 package org.eclipse.scout.rt.server.admin.inspector;
 
-import java.security.AccessController;
 import java.util.ArrayList;
 import java.util.Iterator;
 
@@ -50,7 +49,7 @@ public class SessionInspector {
     }
 
     try {
-      m_info.setSubject(Subject.getSubject(AccessController.getContext()));
+      m_info.setSubject(Subject.current());
     }
     catch (Exception e) { // NOSONAR
     }
