@@ -282,4 +282,5 @@ export interface TableModel extends WidgetModel {
    * If a string is provided, the action will be resolved automatically.
    */
   defaultRowAction?: Action | string;
+  userPreferenceContext?: string;
 }

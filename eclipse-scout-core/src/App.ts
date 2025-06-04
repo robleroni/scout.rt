@@ -9,8 +9,8 @@
  */
 
 import {
-  access, AjaxError, AjaxSettings, AppEventMap, aria, codes, config, Desktop, Device, ErrorHandler, ErrorInfo, Event, EventEmitter, EventHandler, EventListener, EventMapOf, FontDescriptor, fonts, InitModelOf, Locale, locales, logging,
-  numbers, ObjectFactory, objects, scout, Session, SessionModel, texts, webstorage, Widget
+  access, AjaxError, AjaxSettings, AppEventMap, aria, clientUiPreferences, codes, config, Desktop, Device, ErrorHandler, ErrorInfo, Event, EventEmitter, EventHandler, EventListener, EventMapOf, FontDescriptor, fonts, InitModelOf, Locale,
+  locales, logging, numbers, ObjectFactory, objects, scout, Session, SessionModel, texts, webstorage, Widget
 } from './index';
 import $ from 'jquery';
 
@@ -233,7 +233,8 @@ export class App extends EventEmitter {
       texts.bootstrap.bind(texts, options.textsUrl),
       codes.bootstrap.bind(codes, options.codesUrl),
       access.bootstrap.bind(access, options.permissionsUrl),
-      config.bootstrap.bind(config, options.configUrl)
+      config.bootstrap.bind(config, options.configUrl),
+      clientUiPreferences.bootstrap.bind(clientUiPreferences)
     ];
   }
 

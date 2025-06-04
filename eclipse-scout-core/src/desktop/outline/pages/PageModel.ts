@@ -42,4 +42,5 @@ export interface PageModel extends TreeNodeModel, ObjectModelWithUuid<TreeNode> 
    * Default is true
    */
   inheritMenusFromParentTablePage?: boolean;
+  userPreferenceContext?: string;
 }

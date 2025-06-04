@@ -329,6 +329,8 @@ export * from './popup/MobilePopup';
 export * from './popup/MobilePopupModel';
 export * from './popup/MobilePopupAdapter';
 export * from './popup/MobilePopupLayout';
+export * from './prefs/ClientUiPreferences';
+export * from './prefs/ClientUiPreferencesModel';
 export * from './datepicker/DatePicker';
 export * from './datepicker/DatePickerModel';
 export * from './datepicker/DatePickerEventMap';

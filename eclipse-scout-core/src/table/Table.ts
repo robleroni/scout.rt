@@ -130,6 +130,7 @@ export class Table extends Widget implements TableModel, Filterable<TableRow> {
   accessibilityRenderer: AbstractTableAccessibilityRenderer;
   organizer: TableOrganizer;
   defaultRowAction: Action;
+  userPreferenceContext: string;
 
   $data: JQuery;
   $emptyData: JQuery;
