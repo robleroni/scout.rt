@@ -8,14 +8,14 @@
  * SPDX-License-Identifier: EPL-2.0
  */
 import {
-  AbstractTableAccessibilityRenderer, Action, AggregateTableControl, Alignment, AppLinkKeyStroke, aria, arrays, BooleanColumn, Cell, CellEditorPopup, clipboard, Column, ColumnModel, CompactColumn, Comparator, ContextMenuKeyStroke,
-  ContextMenuPopup, DefaultTableAccessibilityRenderer, Desktop, DesktopPopupOpenEvent, Device, DisplayViewId, DoubleClickSupport, dragAndDrop, DragAndDropHandler, DropType, EnumObject, EventHandler, Filter, Filterable, FilterOrFunction,
-  FilterResult, FilterSupport, FullModelOf, graphics, HierarchicalTableAccessibilityRenderer, HtmlComponent, IconColumn, InitModelOf, Insets, keys, KeyStrokeContext, LimitedResultTableStatus, LoadingSupport, Menu, MenuBar, MenuDestinations,
-  MenuItemsOrder, menus, NumberColumn, NumberColumnAggregationFunction, NumberColumnBackgroundEffect, ObjectOrChildModel, ObjectOrModel, objects, Predicate, PropertyChangeEvent, Range, scout, scrollbars, ScrollToOptions, Status,
-  StatusOrModel, strings, styles, TableCompactHandler, TableControl, TableCopyKeyStroke, TableEventMap, TableFooter, TableHeader, TableLayout, TableModel, TableNavigationCollapseKeyStroke, TableNavigationDownKeyStroke,
-  TableNavigationEndKeyStroke, TableNavigationExpandKeyStroke, TableNavigationHomeKeyStroke, TableNavigationPageDownKeyStroke, TableNavigationPageUpKeyStroke, TableNavigationUpKeyStroke, TableOrganizer, TableRefreshKeyStroke, TableRow,
-  TableRowModel, TableSelectAllKeyStroke, TableSelectionHandler, TableStartCellEditKeyStroke, TableTextUserFilter, TableTileGridMediator, TableToggleRowKeyStroke, TableTooltip, TableUpdateBuffer, TableUserFilter, TableUserFilterModel, Tile,
-  TileTableHeaderBox, tooltips, TooltipSupport, UpdateFilteredElementsOptions, ValueField, Widget
+  AbstractTableAccessibilityRenderer, Action, AggregateTableControl, Alignment, AppLinkKeyStroke, aria, arrays, BooleanColumn, Cell, CellEditorPopup, clientUiPreferences, clipboard, Column, ColumnModel, CompactColumn, Comparator,
+  ContextMenuKeyStroke, ContextMenuPopup, DefaultTableAccessibilityRenderer, Desktop, DesktopPopupOpenEvent, Device, DisplayViewId, DoubleClickSupport, dragAndDrop, DragAndDropHandler, DropType, EnumObject, EventHandler, Filter, Filterable,
+  FilterOrFunction, FilterResult, FilterSupport, FullModelOf, graphics, HierarchicalTableAccessibilityRenderer, HtmlComponent, IconColumn, InitModelOf, Insets, keys, KeyStrokeContext, LimitedResultTableStatus, LoadingSupport, Menu, MenuBar,
+  MenuDestinations, MenuItemsOrder, menus, NumberColumn, NumberColumnAggregationFunction, NumberColumnBackgroundEffect, ObjectOrChildModel, ObjectOrModel, objects, Predicate, PropertyChangeEvent, Range, scout, scrollbars, ScrollToOptions,
+  Status, StatusOrModel, strings, styles, TableColumnClientUiPreferenceDo, TableCompactHandler, TableControl, TableCopyKeyStroke, TableEventMap, TableFooter, TableHeader, TableLayout, TableModel, TableNavigationCollapseKeyStroke,
+  TableNavigationDownKeyStroke, TableNavigationEndKeyStroke, TableNavigationExpandKeyStroke, TableNavigationHomeKeyStroke, TableNavigationPageDownKeyStroke, TableNavigationPageUpKeyStroke, TableNavigationUpKeyStroke, TableOrganizer,
+  TableRefreshKeyStroke, TableRow, TableRowModel, TableSelectAllKeyStroke, TableSelectionHandler, TableStartCellEditKeyStroke, TableTextUserFilter, TableTileGridMediator, TableToggleRowKeyStroke, TableTooltip, TableUpdateBuffer,
+  TableUserFilter, TableUserFilterModel, Tile, TileTableHeaderBox, tooltips, TooltipSupport, UpdateFilteredElementsOptions, ValueField, Widget
 } from '../index';
 import $ from 'jquery';
 
@@ -164,6 +164,7 @@ export class Table extends Widget implements TableModel, Filterable<TableRow> {
   protected _$mouseDownRow: JQuery;
   protected _mouseDownRowId: string;
   protected _mouseDownColumn: Column<any>;
+  protected _initialColumnPreferences: TableColumnClientUiPreferenceDo[];
 
   constructor() {
     super();
@@ -398,6 +399,8 @@ export class Table extends Widget implements TableModel, Filterable<TableRow> {
     this._setTileTableHeader(this.tileTableHeader);
     this._sortWhileInit(); // required in case the rows are already provided in the initial model
     this._updateMenusEnabled();
+
+    this._initialColumnPreferences = clientUiPreferences.getTableColumnPreferences(this);
   }
 
   protected _initRow(row: ObjectOrModel<TableRow>): TableRow {
@@ -6133,6 +6136,47 @@ export class Table extends Widget implements TableModel, Filterable<TableRow> {
   isCustomizable(): boolean {
     // TODO bsh [js-table] Delegate to this.customizer
     return false;
+  }
+
+  resetColumnsToInitialState() {
+    this.resetColumnConfigurations(this._initialColumnPreferences);
+  }
+
+  resetColumnConfigurations(columnPreferences: TableColumnClientUiPreferenceDo[]) {
+    this.columns.forEach(column => {
+      this.sort(column, null, true, true); // remove=true
+      this.groupColumn(column, true, null, true); // remove=true
+    });
+
+    let viewIndexMap = new Map<string, number>();
+    columnPreferences.forEach(pref => {
+      viewIndexMap.set(pref.columnId, pref.viewIndex);
+
+      let column = arrays.find(this.columns, column => column.buildUuid() === pref.columnId);
+      column.setWidth(pref.width);
+      if ((pref.sortOrder ?? -1) >= 0) {
+        this.sort(column, pref.sortAscending ? 'asc' : 'desc', true);
+      }
+      column.setVisible(pref.visible);
+      if (!pref.visible) {
+        this.removeFilterByKey(column.id);
+      }
+      if (pref.groupingActive) {
+        this.groupColumn(column, true); // direction is derived from sort direction
+      }
+      if (column instanceof NumberColumn && pref.aggregationFunctionId) {
+        column.setAggregationFunction(pref.aggregationFunctionId as NumberColumnAggregationFunction);
+      }
+      if (column instanceof NumberColumn && pref.backgroundEffectId) {
+        column.setBackgroundEffect(pref.backgroundEffectId as NumberColumnBackgroundEffect);
+      }
+    });
+
+    this.updateColumnStructure(this.columns.slice().sort((c1, c2) => {
+      let viewIndex1 = viewIndexMap.get(c1.buildUuid()) ?? Infinity;
+      let viewIndex2 = viewIndexMap.get(c2.buildUuid()) ?? Infinity;
+      return viewIndex1 - viewIndex2;
+    }));
   }
 
   /* --- STATIC HELPERS ------------------------------------------------------------- */

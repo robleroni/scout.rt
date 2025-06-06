@@ -137,7 +137,7 @@ export class ClientUiPreferences implements ObjectWithType, ClientUiPreferencesM
   }
 
   createTablePreferenceProfile(table: Table, options?: CreateTablePreferenceProfileOptions): TableClientUiPreferenceProfileDo {
-    let columnPreferences = this.getColumnPreferences(table);
+    let columnPreferences = this.getTableColumnPreferences(table);
     let userFilters = options?.includeUserFilters ? this.getTableUserFilterStates(table) : null;
     let customizerData = this.getTableCustomizerData(table);
 
@@ -148,7 +148,7 @@ export class ClientUiPreferences implements ObjectWithType, ClientUiPreferencesM
     });
   }
 
-  getColumnPreferences(table: Table): TableColumnClientUiPreferenceDo[] {
+  getTableColumnPreferences(table: Table): TableColumnClientUiPreferenceDo[] {
     scout.assertParameter('table', table, Table);
     return table.columns.map((column, index) => {
       return scout.create(TableColumnClientUiPreferenceDo, {
