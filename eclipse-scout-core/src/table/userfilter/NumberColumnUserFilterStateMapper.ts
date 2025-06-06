@@ -31,7 +31,7 @@ export class NumberColumnUserFilterStateMapper extends UserFilterStateMapper<Num
   protected override _fromDo(table: Table, filterState: NumberColumnUserFilterStateDo): NumberColumnUserFilter {
     const session = table.session;
     const column = table.columnById(filterState.columnId);
-    return scout.create(NumberColumnUserFilter, {
+    return scout.create(column.filterType, {
       session: session,
       table: table,
       column: column,

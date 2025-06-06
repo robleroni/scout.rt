@@ -31,7 +31,7 @@ export class DateColumnUserFilterStateMapper extends UserFilterStateMapper<DateC
   protected override _fromDo(table: Table, filterState: DateColumnUserFilterStateDo): DateColumnUserFilter {
     const session = table.session;
     const column = table.columnById(filterState.columnId);
-    return scout.create(DateColumnUserFilter, {
+    return scout.create(column.filterType, {
       session: session,
       table: table,
       column: column,

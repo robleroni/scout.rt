@@ -106,7 +106,7 @@ export class ClientUiPreferences implements ObjectWithType, ClientUiPreferencesM
   // --------------------------------------
 
   getTablePreferences(table: Table): TableClientUiPreferencesDo {
-    scout.assertParameter('table', table);
+    scout.assertParameter('table', table, Table);
     let tableId = table.buildUuidPath();
     // FIXME [js-preferences] add userPreferenceContext to Table
     let userPreferenceContext = table.userPreferenceContext;
@@ -116,7 +116,7 @@ export class ClientUiPreferences implements ObjectWithType, ClientUiPreferencesM
   }
 
   getOrCreateTablePreferences(table: Table): TableClientUiPreferencesDo {
-    scout.assertParameter('table', table);
+    scout.assertParameter('table', table, Table);
     let tableId = table.buildUuidPath();
     let userPreferenceContext = table.userPreferenceContext;
     let key = this._computeTablePreferencesKey(tableId, userPreferenceContext);
@@ -136,10 +136,10 @@ export class ClientUiPreferences implements ObjectWithType, ClientUiPreferencesM
     return prefs?.tablePreferenceProfiles?.get(profileId || ClientUiPreferences.TABLE_PREFERENCE_PROFILE_ID_GLOBAL);
   }
 
-  createTablePreferenceProfile(table: Table): TableClientUiPreferenceProfileDo {
+  createTablePreferenceProfile(table: Table, options?: CreateTablePreferenceProfileOptions): TableClientUiPreferenceProfileDo {
     let columnPreferences = this.getColumnPreferences(table);
-    let userFilters = this.getUserFilters(table);
-    let customizerData = this.getCustomizerData(table);
+    let userFilters = options?.includeUserFilters ? this.getTableUserFilterStates(table) : null;
+    let customizerData = this.getTableCustomizerData(table);
 
     return scout.create(TableClientUiPreferenceProfileDo, {
       columns: arrays.nullIfEmpty(columnPreferences) || undefined,
@@ -149,7 +149,7 @@ export class ClientUiPreferences implements ObjectWithType, ClientUiPreferencesM
   }
 
   getColumnPreferences(table: Table): TableColumnClientUiPreferenceDo[] {
-    scout.assertParameter('table', table);
+    scout.assertParameter('table', table, Table);
     return table.columns.map((column, index) => {
       return scout.create(TableColumnClientUiPreferenceDo, {
         columnId: column.buildUuid(),
@@ -166,8 +166,8 @@ export class ClientUiPreferences implements ObjectWithType, ClientUiPreferencesM
     });
   }
 
-  getUserFilters(table: Table): IUserFilterStateDo[] {
-    scout.assertParameter('table', table);
+  getTableUserFilterStates(table: Table): IUserFilterStateDo[] {
+    scout.assertParameter('table', table, Table);
     return table.filters
       .filter(filter => filter instanceof TableUserFilter)
       .map((filter: TableUserFilter) => {
@@ -183,8 +183,8 @@ export class ClientUiPreferences implements ObjectWithType, ClientUiPreferencesM
       .filter(Boolean);
   }
 
-  getCustomizerData(table: Table): ITableCustomizerDo {
-    scout.assertParameter('table', table);
+  getTableCustomizerData(table: Table): ITableCustomizerDo {
+    scout.assertParameter('table', table, Table);
     // FIXME bsh [js-preferences] Implement
     return null;
   }
@@ -259,3 +259,10 @@ export class ClientUiPreferences implements ObjectWithType, ClientUiPreferencesM
 }
 
 export const clientUiPreferences: ClientUiPreferences = objects.createSingletonProxy(ClientUiPreferences);
+
+export interface CreateTablePreferenceProfileOptions {
+  /**
+   * default is false
+   */
+  includeUserFilters: boolean;
+}

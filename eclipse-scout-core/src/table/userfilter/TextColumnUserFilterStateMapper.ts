@@ -30,7 +30,7 @@ export class TextColumnUserFilterStateMapper extends UserFilterStateMapper<TextC
   protected override _fromDo(table: Table, filterState: TextColumnUserFilterStateDo): TextColumnUserFilter {
     const session = table.session;
     const column = table.columnById(filterState.columnId);
-    return scout.create(TextColumnUserFilter, {
+    return scout.create(column.filterType, {
       session: session,
       table: table,
       column: column,

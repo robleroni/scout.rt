@@ -29,7 +29,7 @@ export class ColumnUserFilterStateMapper extends UserFilterStateMapper<ColumnUse
   protected override _fromDo(table: Table, filterState: ColumnUserFilterStateDo): ColumnUserFilter {
     const session = table.session;
     const column = table.columnById(filterState.columnId);
-    return scout.create(ColumnUserFilter, {
+    return scout.create(column.filterType, {
       session: session,
       table: table,
       column: column,
