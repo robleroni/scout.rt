@@ -7,7 +7,10 @@
  *
  * SPDX-License-Identifier: EPL-2.0
  */
-import {ClientUiPreferencesModel, dataObjects, InitModelOf, objects, ObjectWithType, scout, Session, strings, Table, TableClientUiPreferenceProfileDo, TableClientUiPreferencesDo, webstorage} from '../index';
+import {
+  arrays, ClientUiPreferencesModel, dataObjects, InitModelOf, ITableCustomizerDo, IUserFilterStateDo, NumberColumn, objects, ObjectWithType, scout, Session, strings, Table, TableClientUiPreferenceProfileDo, TableClientUiPreferencesDo,
+  TableColumnClientUiPreferenceDo, TableUserFilter, UserFilterStateMappers, webstorage
+} from '../index';
 
 // FIXME bsh [js-preferences] Handle errors so they will not be propagated to the user (see invokeSafe in ClientUiUserPreferences)
 export class ClientUiPreferences implements ObjectWithType, ClientUiPreferencesModel {
@@ -32,8 +35,7 @@ export class ClientUiPreferences implements ObjectWithType, ClientUiPreferencesM
    * Map of all table preferences in {@link _tablePreferences}, indexed by table identifier (see {@link _computeTablePreferencesKey}).
    **/
   protected _tablePreferencesMap: Map<string, TableClientUiPreferencesDo>;
-  protected _dirty;
-  boolean;
+  protected _dirty: boolean;
 
   // --------------------------------------
 
@@ -57,15 +59,17 @@ export class ClientUiPreferences implements ObjectWithType, ClientUiPreferencesM
     return $.when(this._store());
   }
 
-  markDirty() {
-    if (!this._dirty) {
-      // Don't store immediately so we can coalesce multiple changes
-      setTimeout(() => {
-        this._dirty = false;
-        this.store();
-      });
+  markDirty(): boolean {
+    if (this._dirty) {
+      return false;
     }
     this._dirty = true;
+    // Don't store immediately so we can coalesce multiple changes
+    setTimeout(() => {
+      this._dirty = false;
+      this.store();
+    });
+    return true;
   }
 
   protected async _load(): Promise<void> {
@@ -95,9 +99,14 @@ export class ClientUiPreferences implements ObjectWithType, ClientUiPreferencesM
     return strings.join('#', tableId, userPreferenceContext);
   }
 
+  protected _isValidProfileId(profileId: string): boolean {
+    return !!profileId && !scout.isOneOf(profileId, ClientUiPreferences.TABLE_PREFERENCE_PROFILE_ID_GLOBAL, ClientUiPreferences.TABLE_PREFERENCE_PROFILE_ID_BOOKMARK);
+  }
+
   // --------------------------------------
 
   getTablePreferences(table: Table): TableClientUiPreferencesDo {
+    scout.assertParameter('table', table);
     let tableId = table.buildUuidPath();
     // FIXME [js-preferences] add userPreferenceContext to Table
     let userPreferenceContext = table.userPreferenceContext;
@@ -106,12 +115,8 @@ export class ClientUiPreferences implements ObjectWithType, ClientUiPreferencesM
     return this._tablePreferencesMap.get(key);
   }
 
-  getTablePreferencesProfile(prefsOrTable: TableClientUiPreferencesDo | Table, profileId: string) {
-    let prefs = prefsOrTable instanceof Table ? this.getTablePreferences(prefsOrTable) : prefsOrTable;
-    return prefs?.tablePreferenceProfiles?.get(profileId || ClientUiPreferences.TABLE_PREFERENCE_PROFILE_ID_GLOBAL);
-  }
-
   getOrCreateTablePreferences(table: Table): TableClientUiPreferencesDo {
+    scout.assertParameter('table', table);
     let tableId = table.buildUuidPath();
     let userPreferenceContext = table.userPreferenceContext;
     let key = this._computeTablePreferencesKey(tableId, userPreferenceContext);
@@ -125,6 +130,66 @@ export class ClientUiPreferences implements ObjectWithType, ClientUiPreferencesM
     }
     return prefs;
   }
+
+  getTablePreferencesProfile(prefsOrTable: TableClientUiPreferencesDo | Table, profileId: string): TableClientUiPreferenceProfileDo {
+    let prefs = prefsOrTable instanceof Table ? this.getTablePreferences(prefsOrTable) : prefsOrTable;
+    return prefs?.tablePreferenceProfiles?.get(profileId || ClientUiPreferences.TABLE_PREFERENCE_PROFILE_ID_GLOBAL);
+  }
+
+  createTablePreferenceProfile(table: Table): TableClientUiPreferenceProfileDo {
+    let columnPreferences = this.getColumnPreferences(table);
+    let userFilters = this.getUserFilters(table);
+    let customizerData = this.getCustomizerData(table);
+
+    return scout.create(TableClientUiPreferenceProfileDo, {
+      columns: arrays.nullIfEmpty(columnPreferences) || undefined,
+      userFilters: arrays.nullIfEmpty(userFilters) || undefined,
+      tableCustomizerData: customizerData || undefined
+    });
+  }
+
+  getColumnPreferences(table: Table): TableColumnClientUiPreferenceDo[] {
+    scout.assertParameter('table', table);
+    return table.columns.map((column, index) => {
+      return scout.create(TableColumnClientUiPreferenceDo, {
+        columnId: column.buildUuid(),
+        width: column.width,
+        viewIndex: index,
+        sortOrder: column.sortIndex,
+        sortAscending: column.sortAscending,
+        visible: column.visible,
+        groupingActive: column.grouped,
+        // FIXME bsh [js-preferences] Delegate to column?
+        aggregationFunctionId: (column instanceof NumberColumn ? column.aggregationFunction : null) || undefined,
+        backgroundEffectId: (column instanceof NumberColumn ? column.backgroundEffect : null) || undefined
+      });
+    });
+  }
+
+  getUserFilters(table: Table): IUserFilterStateDo[] {
+    scout.assertParameter('table', table);
+    return table.filters
+      .filter(filter => filter instanceof TableUserFilter)
+      .map((filter: TableUserFilter) => {
+        for (let mapper of UserFilterStateMappers.all()) {
+          let filterState = mapper.tryToDo(table, filter);
+          if (filterState) {
+            return filterState;
+          }
+        }
+        console.warn(`Unable to map filter to data object [table=${table.id}, filterType=${filter?.filterType}, filterLabel=${filter?.createLabel()}`);
+        return null;
+      })
+      .filter(Boolean);
+  }
+
+  getCustomizerData(table: Table): ITableCustomizerDo {
+    scout.assertParameter('table', table);
+    // FIXME bsh [js-preferences] Implement
+    return null;
+  }
+
+  // --------------------------------------
 
   applyTablePreferences(table: Table, profileId: string) {
     let prefs = this.getTablePreferences(table);
@@ -153,12 +218,10 @@ export class ClientUiPreferences implements ObjectWithType, ClientUiPreferencesM
     // FIXME bsh [js-preferences] Apply prefs to table (excluding filters!)
   }
 
-  createAndStoreTablePreferenceProfile(table: Table, profileId: string) {
-    if (!profileId || scout.isOneOf(profileId, ClientUiPreferences.TABLE_PREFERENCE_PROFILE_ID_GLOBAL, ClientUiPreferences.TABLE_PREFERENCE_PROFILE_ID_GLOBAL)) {
+  putTablePreferenceProfile(table: Table, profileId: string, profile: TableClientUiPreferenceProfileDo) {
+    if (!this._isValidProfileId(profileId) || !profile) {
       return;
     }
-
-    let profile = this.createTablePreferenceProfile(table);
 
     let prefs = this.getOrCreateTablePreferences(table);
     prefs.tablePreferenceProfiles = prefs.tablePreferenceProfiles || new Map();
@@ -167,23 +230,8 @@ export class ClientUiPreferences implements ObjectWithType, ClientUiPreferencesM
     this.markDirty();
   }
 
-  createTablePreferenceProfile(table: Table): TableClientUiPreferenceProfileDo {
-    let columnPreferences = [];
-    let userFilters = [];
-    let customizerData = null;
-
-    return scout.create(TableClientUiPreferenceProfileDo, {
-      columns: columnPreferences,
-      userFilters: userFilters,
-      tableCustomizerData: customizerData
-    });
-  }
-
   renameTablePreferenceProfile(table: Table, oldProfileId: string, newProfileId: string) {
-    if (!oldProfileId || scout.isOneOf(oldProfileId, ClientUiPreferences.TABLE_PREFERENCE_PROFILE_ID_GLOBAL, ClientUiPreferences.TABLE_PREFERENCE_PROFILE_ID_GLOBAL)) {
-      return;
-    }
-    if (!newProfileId || scout.isOneOf(newProfileId, ClientUiPreferences.TABLE_PREFERENCE_PROFILE_ID_GLOBAL, ClientUiPreferences.TABLE_PREFERENCE_PROFILE_ID_GLOBAL)) {
+    if (!this._isValidProfileId(oldProfileId) || !this._isValidProfileId(newProfileId)) {
       return;
     }
 
@@ -196,8 +244,8 @@ export class ClientUiPreferences implements ObjectWithType, ClientUiPreferencesM
     }
   }
 
-  deleteTablePreferenceProfile(table: Table, profileId: string) {
-    if (!profileId || scout.isOneOf(profileId, ClientUiPreferences.TABLE_PREFERENCE_PROFILE_ID_GLOBAL, ClientUiPreferences.TABLE_PREFERENCE_PROFILE_ID_GLOBAL)) {
+  removeTablePreferenceProfile(table: Table, profileId: string) {
+    if (!this._isValidProfileId(profileId)) {
       return;
     }
 
