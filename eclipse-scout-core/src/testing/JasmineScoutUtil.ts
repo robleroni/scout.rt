@@ -7,7 +7,9 @@
  *
  * SPDX-License-Identifier: EPL-2.0
  */
-import {AbstractConstructor, arrays, AutoLeafPageWithNodes, Constructor, DoEntity, HybridActionEvent, HybridManager, ObjectFactory, Page, PageWithNodes, PageWithTable, scout, Session, strings, TypeDescriptor, Widget} from '../index';
+import {
+  AbstractConstructor, arrays, AutoLeafPageWithNodes, BaseDoEntity, Constructor, dataObjects, DoEntity, HybridActionEvent, HybridManager, ObjectFactory, Page, PageWithNodes, PageWithTable, scout, Session, strings, TypeDescriptor, Widget
+} from '../index';
 import $ from 'jquery';
 import 'jasmine-ajax';
 
@@ -97,6 +99,18 @@ export const JasmineScoutUtil = {
     jasmine.Ajax.stubRequest(url, data, options.method).andReturn({
       status: 200,
       responseText: JSON.stringify(responseData)
+    });
+  },
+
+  mockDataObjectRestCall(resourceUrlToMock: string, responseData: BaseDoEntity | void, options: {
+    restriction?: any;
+    method?: string;
+  } = {}) {
+    let url = new RegExp('.*' + strings.quote(resourceUrlToMock) + '.*');
+    let data = options.restriction ? new RegExp('.*' + strings.quote(options.restriction) + '.*') : undefined;
+    jasmine.Ajax.stubRequest(url, data, options.method).andReturn({
+      status: 200,
+      responseText: dataObjects.stringify(responseData)
     });
   },
 
